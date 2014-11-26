@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 from theano import Variable
 
 from block.utils import update_instance
@@ -12,11 +14,13 @@ class MonitorChannel(object):
         The name of this monitor channel, should be unique in order to
         distinguish channels.
     value : Theano variable or callable
-        Either a Theano variable,or a callable function without arguments.
+        Either a Theano variable, or a callable function, which takes a
+        model and dataset as arguments.
     validation : bool, optional
         If ``True``, this channel will be part of the validation/test set
-        monitoring. If not, this channel will be monitored at each update.
-        Defaults to ``True``.
+        monitoring (i.e. be calculated after a given interval). If not,
+        this channel will be monitored at each update.  Defaults to
+        ``True``.
     needs_data : bool, optional
         If ``True``, it means that this channel's value depends on the
         input to the model (e.g. for a cost this should be ``True``, for
@@ -36,20 +40,22 @@ class MonitorChannel(object):
     """
     def __init__(self, name, value, validation=True, needs_data=True,
                  inputs=None):
+        assert validation or needs_data
         if isinstance(value, Variable):
-            self.theano_var = True
+            self.is_theano_var = True
         else:
             assert callable(value)
-            self.theano_var = False
+            self.is_theano_var = False
         if inputs is None:
-            inputs = {}
+            inputs = OrderedDict()
         else:
-            assert self.theano_var
+            assert self.is_theano_var
+            assert isinstance(inputs, OrderedDict)
         update_instance(self, locals())
 
-    def __call__(self):
-        assert not self.theano_var
-        return self.value()
+    def __call__(self, model, dataset):
+        assert not self.is_theano_var
+        return self.value(model, dataset)
 
 
 class Monitor(object):
@@ -77,20 +83,18 @@ class Monitor(object):
     intervals : list of integers
         Perform monitoring on the validation sets at the given intervals.
 
+    Attributes
+    ----------
+    num_examples_seen : int
+        The number of examples seen by the model.
+
     """
-    def __init__(self, intervals):
+    def __init__(self, intervals, dataset):
         self.num_examples_seen = -1
         self.channels = []
 
-    def get_continuous_theano_vars(self):
-        """Return the arguments of the Theano function.
-
-        This returns the arguments and keyword arguments needed to compile
-        a Theano function that returns values to be monitored after each
-        update. These values can be combined with the updates to the model
-        to compile a function that both monitors and updates the model
-        using a single computational graph, which is more computationally
-        efficient.
+    def get_data_dependent_theano_vars(self):
+        """Get the Theano monitoring variables that require data.
 
         Returns
         -------
@@ -102,15 +106,49 @@ class Monitor(object):
 
         """
         channels = [channel for channel in self.channels
-                    if channel.continuous and channel.theano_var]
-        inputs = {}
+                    if channel.needs_data and channel.is_theano_var]
+        inputs = OrderedDict()
         for channel in channels:
             inputs.update(channel.inputs)
         return channels, inputs
 
-    def __call__(self):
-        """Perform monitoring."""
+    def get_update_theano_vars(self):
+        """Return the arguments of Theano monitor variables.
+
+        This returns the arguments and keyword arguments needed to compile
+        a Theano function that returns values to be monitored after each
+        update. These values can be combined with the updates to the model
+        to compile a function that both monitors and updates the model
+        using a single computational graph, which is more computationally
+        efficient.
+
+        Notes
+        -----
+        The numerical values of these monitoring channels are expected to
+        be provided as arguments (in the form of a dictionary) when calling
+        the :meth:`__call__` method.
+
+        """
+        channels = [channel for channel in self.channels
+                    if channel.validation and channel.is_theano_var]
+        inputs = OrderedDict()
+        for channel in channels:
+            inputs.update(channel.inputs)
+        return channels, inputs
+
+    def __call__(self, update_monitoring_values=None):
+        """Perform monitoring.
+
+        Parameters
+        ----------
+        update_monitoring_values : dict of Theano variables, object pairs
+            A dictionary with the channel values (Theano variables) as
+            keys, and the numerical values as values.
+
+        """
         self.num_examples_seen += 1
+        if update_monitoring_values is None:
+            update_monitoring_values is {}
         # Perform update monitoring
         if any(self.num_samples_seen % interval == 0
                for interval in self.intervals):
