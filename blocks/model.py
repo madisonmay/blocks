@@ -12,7 +12,7 @@ from theano.tensor.shared_randomstreams import RandomStreams
 logger = logging.getLogger(__name__)
 
 
-class ComputationGraph(object):
+class Model(object):
     """Encapsulates a managed Theano computation graph.
 
     Attributes
@@ -37,7 +37,7 @@ class ComputationGraph(object):
     def _get_variables(self):
         def recursion(current):
             self.variables.add(current)
-            if current.owner:
+            if current.owner is not None:
                 owner = current.owner
                 if owner not in self.applies:
                     if hasattr(owner.tag, 'updates'):
