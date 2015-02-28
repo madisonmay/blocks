@@ -36,6 +36,11 @@ setup(
     install_requires=['numpy', 'six', 'pyyaml', 'pandas', 'toolz',
                       'theano', 'picklable-itertools', 'progressbar2',
                       'fuel'],
+    dependency_links=[
+        'https://github.com/dwf/picklable_itertools/tarball/master#egg=picklable-itertools',
+        'https://github.com/Theano/Theano/tarball/master#egg=theano',
+        'https://github.com/bartvm/fuel/tarball/master#egg=fuel'
+    ],
     extras_require={
         'test': ['nose', 'nose2'],
         'plot': ['bokeh'],
